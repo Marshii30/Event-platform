@@ -1,0 +1,65 @@
+.party-container {
+  background-color: #111;
+  color: white;
+  min-height: 100vh;
+  padding: 20px;
+  font-family: Arial, sans-serif;
+}
+
+.party-title {
+  text-align: center;
+  font-size: 2rem;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+/* Image box styling */
+.party-image {
+  width: 400px;
+  height: 200px;
+  margin: 0 auto 20px auto;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #ccc;
+}
+
+.party-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.ticket-table {
+  width: 100%;
+  background: white;
+  color: black;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+.ticket-table th,
+.ticket-table td {
+  padding: 12px;
+  border: 1px solid #ddd;
+  text-align: center;
+}
+
+.book-btn {
+  background-color: #da4848;
+  color: white;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 20%;
+  font-size: 1rem;
+  display: block;
+  margin: 0 auto;
+  cursor: pointer;
+}
+
+.book-btn:hover {
+  background-color: #c13c3c;
+}

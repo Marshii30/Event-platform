@@ -1,0 +1,75 @@
+.payment-container {
+  max-width: 600px;
+  margin: 40px auto;
+  padding: 30px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  text-align: center;
+  font-family: Arial, sans-serif;
+}
+
+.payment-title {
+  font-size: 28px;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.payment-amount {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 25px;
+  color: #DA4848;
+}
+
+.qr-section {
+  margin-bottom: 25px;
+}
+
+.qr-section img {
+  width: 200px;
+  height: 200px;
+  border: 3px solid #eee;
+  border-radius: 8px;
+}
+
+.input-group {
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.input-group label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 6px;
+  color: #444;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+}
+
+.proceed-btn {
+  background: #DA4848;
+  color: #fff;
+  padding: 12px 25px;
+  font-size: 16px;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.2s ease-in-out;
+}
+
+.proceed-btn:hover {
+  background: #b93c3c;
+}
+
+.success-message {
+  margin-top: 15px;
+  color: green;
+  font-weight: bold;
+}

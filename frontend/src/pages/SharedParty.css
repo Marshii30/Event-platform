@@ -1,0 +1,75 @@
+.party-container {
+  background-color: black;
+  min-height: 100vh;
+  color: white;
+  padding: 0;
+  margin: 0;
+}
+
+.party-title {
+  text-align: center;
+  padding: 20px 0;
+  font-weight: 700;
+}
+
+.party-image {
+  width: 400px;          /* smaller fixed width */
+  height: 200px;         /* fixed height */
+  margin: 30px auto;
+  background-color: #ccc;
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;      /* hide overflow */
+}
+
+.party-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;   /* fit inside box without cropping */
+  border-radius: 8px;
+}
+
+.ticket-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 40px;
+}
+
+.ticket-table {
+  width: 50%;            /* reduced width */
+  border-collapse: collapse;
+  background-color: white;
+  color: black;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ticket-table th,
+.ticket-table td {
+  border: 1px solid #ccc;
+  padding: 15px;
+  text-align: center;
+  font-weight: 400;
+}
+
+.ticket-table th {
+  font-weight: 700;
+}
+
+.book-btn {
+  background-color: #e55555;
+  border: none;
+  color: white;
+  font-weight: 600;
+  font-size: 16px;
+  padding: 10px 20px;
+  border-radius: 15px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.book-btn:hover {
+  background-color: #cc4444;
+}

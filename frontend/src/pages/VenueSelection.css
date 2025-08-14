@@ -1,0 +1,19 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+.service-page{ background:#111; color:#fff; min-height:100vh; padding:28px 20px; font-family:'Roboto',sans-serif; text-align:center; }
+
+.service-title{ font-weight:700; font-size:28px; margin-bottom:22px; }
+
+.image-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:18px; max-width:860px; margin:0 auto 28px; }
+
+.image-box{ background:#ddd; color:#111; height:220px; display:flex; align-items:center; justify-content:center; font-weight:700; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.4); }
+
+.service-footer{ margin-top:30px; }
+.service-footer h2{ margin:8px 0; font-size:20px; }
+.service-footer p{ margin:6px 0 12px; color:#e6e6e6; }
+.social-icons{ display:flex; justify-content:center; gap:16px; font-size:1.4rem; margin-bottom:10px; }
+.social-icons a{ color:#fff; transition:color .2s; }
+.social-icons a:hover{ color:#FF7A00; }
+
+@media (max-width:640px){ .image-grid{ grid-template-columns:1fr; } .image-box{ height:180px; } }
+

@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@700&display=swap');
+
+.service-page {
+  background-color: #111 !important;
+  color: #fff !important;
+  padding: 2rem !important;
+  text-align: center !important;
+}
+
+.service-title {
+  font-family: 'Roboto', sans-serif !important;
+  font-weight: bold !important;
+  font-size: 2rem !important;
+  margin-bottom: 1.5rem !important;
+}
+
+.image-row {
+  display: flex !important;
+  justify-content: center !important;
+  gap: 1rem !important;
+  margin-bottom: 1rem !important;
+}
+
+.image-box {
+  background-color: #ccc !important;
+  width: 200px !important;
+  height: 200px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: opacity 0.3s ease, transform 0.3s ease !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important;
+  opacity: 0.6 !important;
+}
+
+.image-box img {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 8px !important;
+  object-fit: cover !important;
+}
+
+.image-box:hover {
+  opacity: 0.95 !important;
+  transform: scale(1.03) !important;
+}
+
+.book-button {
+  display: inline-block !important;
+  background: linear-gradient(180deg, #333, #222) !important;
+  color: #ccc !important;
+  padding: 0.6rem 1.5rem !important;
+  border-radius: 20px !important;
+  margin: 1rem 0 2rem !important;
+  text-decoration: none !important;
+  font-weight: bold !important;
+  transition: background 0.3s ease, color 0.3s ease !important;
+}
+
+.book-button:hover {
+  background: linear-gradient(180deg, #444, #333) !important;
+  color: #fff !important;
+}
+
+.service-text {
+  font-size: 1rem !important;
+  max-width: 800px !important;
+  margin: 0 auto !important;
+  line-height: 1.5 !important;
+  text-align: left !important;
+}

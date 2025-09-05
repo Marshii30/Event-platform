@@ -1,0 +1,42 @@
+.admin-container {
+  padding: 30px;
+  font-family: Arial, sans-serif;
+}
+
+.admin-container h1 {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.bookings-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: auto;
+}
+
+.bookings-table th,
+.bookings-table td {
+  border: 1px solid #ddd;
+  padding: 10px;
+  text-align: center;
+}
+
+.bookings-table th {
+  background: #333;
+  color: white;
+}
+
+.export-btn {
+  margin: 5px;
+  padding: 8px 15px;
+  font-size: 14px;
+  background: #333;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.export-btn:hover {
+  background: #555;
+}

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "./ContactPage.css";
+import API_BASE from "../config";
 
 export default function ContactPage() {
   const [formData, setFormData] = useState({
@@ -29,11 +30,9 @@ export default function ContactPage() {
     }
 
     try {
-      const response = await fetch("http://localhost:5000/api/contact", {
+      const response = await fetch(`${API_BASE}/api/contact`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
 
@@ -49,11 +48,12 @@ export default function ContactPage() {
           consent2: false,
         });
       } else {
-        alert("There was a problem submitting your message.");
+        const text = await response.text();
+        alert("There was a problem submitting your message: " + text);
       }
     } catch (error) {
       console.error("Submission error:", error);
-      alert("Error connecting to server.");
+      alert("Error connecting to server: " + error.message);
     }
   };
 
@@ -79,77 +79,37 @@ export default function ContactPage() {
       {/* Right Column (Form) */}
       <form className="contact-form" onSubmit={handleSubmit}>
         <label>Name*</label>
-        <input
-          type="text"
-          name="name"
-          value={formData.name}
-          onChange={handleChange}
-          required
-        />
+        <input type="text" name="name" value={formData.name} onChange={handleChange} required />
 
         <label>Mail id*</label>
-        <input
-          type="email"
-          name="email"
-          value={formData.email}
-          onChange={handleChange}
-          required
-        />
+        <input type="email" name="email" value={formData.email} onChange={handleChange} required />
 
         <label>Company Name*</label>
-        <input
-          type="text"
-          name="company"
-          value={formData.company}
-          onChange={handleChange}
-          required
-        />
+        <input type="text" name="company" value={formData.company} onChange={handleChange} required />
 
         <label>Phone No.*</label>
-        <input
-          type="tel"
-          name="phone"
-          value={formData.phone}
-          onChange={handleChange}
-          required
-        />
+        <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required />
 
         <label>Message</label>
-        <textarea
-          name="message"
-          rows="4"
-          value={formData.message}
-          onChange={handleChange}
-        />
+        <textarea name="message" rows="4" value={formData.message} onChange={handleChange} />
 
         <p className="agreement-text">
-          From time to time, Planzee Events would like to contact you about our
-          products and services, as well as other content that may be of
-          interest to you. Please check the boxes below if you are happy to stay
-          in touch:
+          From time to time, Planzee Events would like to contact you about our products and
+          services, as well as other content that may be of interest to you. Please check the
+          boxes below if you are happy to stay in touch:
         </p>
         <label className="checkbox-label">
-          <input
-            type="checkbox"
-            name="consent1"
-            checked={formData.consent1}
-            onChange={handleChange}
-          />
+          <input type="checkbox" name="consent1" checked={formData.consent1} onChange={handleChange} />
           I agree to receive other communications from Planzee Events.
         </label>
 
         <p className="agreement-text">
-          Planzee Events needs to store your data in order to contact you in
-          regards your enquiry above. If you consent to us storing your personal
-          data for this purpose, please tick the checkbox below.
+          Planzee Events needs to store your data in order to contact you in regards your enquiry
+          above. If you consent to us storing your personal data for this purpose, please tick the
+          checkbox below.
         </p>
         <label className="checkbox-label">
-          <input
-            type="checkbox"
-            name="consent2"
-            checked={formData.consent2}
-            onChange={handleChange}
-          />
+          <input type="checkbox" name="consent2" checked={formData.consent2} onChange={handleChange} />
           I agree to allow Planzee Events to store and process my personal data.*
         </label>
 

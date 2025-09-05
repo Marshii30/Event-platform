@@ -17,8 +17,8 @@ export default function SharedParty() {
     setQuantities({ ...quantities, [ticket]: value });
   };
 
-  const handleBuyNow = (price) => {
-    navigate("/payment", { state: { price } });
+  const handleBuyNow = (ticket) => {
+    navigate("/payment", { state: { price: ticket.price, ticketType: ticket.type } });
   };
 
   return (
@@ -60,7 +60,7 @@ export default function SharedParty() {
                 <td>
                   <button
                     className="book-btn"
-                    onClick={() => handleBuyNow(ticket.price)}
+                    onClick={() => handleBuyNow(ticket)}
                   >
                     Buy Now
                   </button>

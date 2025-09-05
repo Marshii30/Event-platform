@@ -18,6 +18,30 @@ import ContactPage from './pages/ContactPage';
 import SharedParty from './pages/SharedParty';
 import ExclusiveParty from './pages/ExclusiveParty';
 import PaymentPage from './pages/PaymentPage';
+import AdminLogin from './pages/AdminLogin';
+import AdminBookings from './pages/AdminBookings';
+import AdminLogout from './pages/AdminLogout';
+
+// ✅ Success Page
+function SuccessPage() {
+  return (
+    <div style={{ textAlign: "center", padding: "50px" }}>
+      <h1>✅ Payment Successful!</h1>
+      <p>Thank you for booking with Planzee Events.</p>
+      <p>Check your email for ticket details 🎟️</p>
+    </div>
+  );
+}
+
+// ❌ Cancel Page
+function CancelPage() {
+  return (
+    <div style={{ textAlign: "center", padding: "50px" }}>
+      <h1>❌ Payment Cancelled</h1>
+      <p>Your payment was cancelled. Please try again.</p>
+    </div>
+  );
+}
 
 export default function App() {
   return (
@@ -39,6 +63,13 @@ export default function App() {
       <Route path="/shared-party" element={<SharedParty />} />
       <Route path="/exclusive-party" element={<ExclusiveParty />} />
       <Route path="/payment" element={<PaymentPage />} />
+      <Route path="/success" element={<SuccessPage />} />
+      <Route path="/cancel" element={<CancelPage />} />
+
+      {/* ✅ Admin Routes */}
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/bookings" element={<AdminBookings />} />
+      <Route path="/admin/logout" element={<AdminLogout />} />
     </Routes>
   );
 }

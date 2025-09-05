@@ -1,0 +1,33 @@
+.result-page {
+  text-align: center;
+  padding: 80px;
+  font-family: Arial, sans-serif;
+}
+
+.result-page.success h1 {
+  color: green;
+}
+
+.result-page.cancel h1 {
+  color: red;
+}
+
+.result-page p {
+  font-size: 18px;
+  margin-top: 10px;
+}
+
+.result-page button {
+  margin-top: 20px;
+  padding: 10px 20px;
+  font-size: 16px;
+  background: #333;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.result-page button:hover {
+  background: #555;
+}

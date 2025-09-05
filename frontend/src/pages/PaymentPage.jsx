@@ -1,10 +1,15 @@
 import React, { useState } from "react";
 import "./PaymentPage.css";
 import { useLocation } from "react-router-dom";
+import { loadStripe } from "@stripe/stripe-js";
+import API_BASE from "../config";
+
+// ✅ Publishable Key
+const stripePromise = loadStripe("pk_test_51S2prLGDiqgQkK1fWiwAXUbYcBfbF35kFa0kC2lovj1YajB9HutFuUnkqh6VevF8kWAEwm4nuLD2mgcTgLi0dJzm00XejESL0P");
 
 export default function PaymentPage() {
   const location = useLocation();
-  const { amount } = location.state || { amount: 0 };
+  const { price, ticketType } = location.state || { price: 0, ticketType: "Event Ticket" };
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -15,38 +20,37 @@ export default function PaymentPage() {
       return;
     }
 
+    const stripe = await stripePromise;
+
     try {
-      const response = await fetch("http://localhost:5000/api/payment", {
+      const response = await fetch(`${API_BASE}/api/create-checkout-session`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ name, email })  // only name and email sent
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: price, name, email, ticketType }),
       });
 
-      if (response.ok) {
-        alert("The Ticket Will Be Sent To your Mail ID");
-        setName("");
-        setEmail("");
-      } else {
-        const errData = await response.json();
-        alert("Something went wrong: " + (errData.error || "Unknown error"));
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error("Checkout failed: " + text);
+      }
+
+      const session = await response.json();
+      const result = await stripe.redirectToCheckout({ sessionId: session.id });
+      if (result.error) {
+        alert(result.error.message);
       }
     } catch (error) {
-      console.error("Error submitting payment:", error);
-      alert("Error connecting to server.");
+      console.error("Error:", error);
+      alert("Failed to start checkout: " + error.message);
     }
   };
 
   return (
     <div className="payment-container">
       <h1 className="payment-title">Payment Page</h1>
-      <p className="payment-amount">Amount to Pay: USD {amount}</p>
-
-      <div className="qr-section">
-        <img src="/payment-qr.png" alt="Payment QR" />
-        <p>Scan this QR code to make the payment</p>
-      </div>
+      <p className="payment-amount">
+        Amount to Pay: USD {price} ({ticketType})
+      </p>
 
       <div className="input-group">
         <label>Name:</label>
@@ -69,7 +73,7 @@ export default function PaymentPage() {
       </div>
 
       <button className="proceed-btn" onClick={handleProceed}>
-        Proceed
+        Pay Now
       </button>
     </div>
   );

@@ -2,46 +2,76 @@ import React, { useState } from "react";
 import "./PaymentPage.css";
 import { useLocation } from "react-router-dom";
 import { loadStripe } from "@stripe/stripe-js";
-import API_BASE from "../config";
 
-// ✅ Publishable Key
-const stripePromise = loadStripe("pk_test_51S2prLGDiqgQkK1fWiwAXUbYcBfbF35kFa0kC2lovj1YajB9HutFuUnkqh6VevF8kWAEwm4nuLD2mgcTgLi0dJzm00XejESL0P");
+// Put your publishable key here or keep as-is if already correct
+const STRIPE_PUBLISHABLE_KEY = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || "pk_test_51S2prLGDiqgQkK1fWiwAXUbYcBfbF35kFa0kC2lovj1YajB9HutFuUnkqh6VevF8kWAEwm4nuLD2mgcTgLi0dJzm00XejESL0P";
+
+// backend base URL (set REACT_APP_API_URL in Vercel; fallback to your Render URL)
+const API_BASE = process.env.REACT_APP_API_URL || "https://event-platform-13.onrender.com";
+
+const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
 export default function PaymentPage() {
   const location = useLocation();
-  const { price, ticketType } = location.state || { price: 0, ticketType: "Event Ticket" };
+  const { price = 0, ticketType = "Event Ticket" } = location.state || {};
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleProceed = async () => {
-    if (!name || !email) {
+    if (!name.trim() || !email.trim()) {
       alert("Please fill in your name and email before proceeding.");
       return;
     }
 
-    const stripe = await stripePromise;
-
+    setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/create-checkout-session`, {
+      const stripe = await stripePromise;
+      if (!stripe) throw new Error("Stripe failed to load.");
+
+      const body = {
+        amount: price,
+        name,
+        email,
+        ticket_type: ticketType
+      };
+
+      const res = await fetch(`${API_BASE}/api/create-checkout-session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: price, name, email, ticketType }),
+        body: JSON.stringify(body),
       });
 
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error("Checkout failed: " + text);
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        console.error("Server error creating checkout session:", err);
+        alert("Failed to start checkout. Check server logs.");
+        setLoading(false);
+        return;
       }
 
-      const session = await response.json();
+      const session = await res.json();
+
+      // server should return { id: '<stripe_session_id>' }
+      if (!session || !session.id) {
+        console.error("Invalid session response:", session);
+        alert("Failed to start checkout (invalid response).");
+        setLoading(false);
+        return;
+      }
+
       const result = await stripe.redirectToCheckout({ sessionId: session.id });
+
       if (result.error) {
-        alert(result.error.message);
+        console.error("Stripe redirect error:", result.error);
+        alert(result.error.message || "Stripe redirect failed");
       }
     } catch (error) {
       console.error("Error:", error);
-      alert("Failed to start checkout: " + error.message);
+      alert("Failed to start checkout — check console/network and your backend URL.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -72,8 +102,12 @@ export default function PaymentPage() {
         />
       </div>
 
-      <button className="proceed-btn" onClick={handleProceed}>
-        Pay Now
+      <button
+        className="proceed-btn"
+        onClick={handleProceed}
+        disabled={loading}
+      >
+        {loading ? "Starting checkout…" : "Pay Now"}
       </button>
     </div>
   );

@@ -1,128 +1,147 @@
+# backend/app.py
+import os
+import io
+import pandas as pd
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from flask_mail import Mail, Message
-import os
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 import stripe
-import pandas as pd
-import psycopg2
-import psycopg2.extras
+from flask_mail import Mail, Message
 from urllib.parse import urlparse
-from io import StringIO, BytesIO
-from dotenv import load_dotenv, find_dotenv
 
-# ---------------------------
-# Env
-# ---------------------------
-load_dotenv(find_dotenv(), override=True)
+load_dotenv()  # read .env (local dev only; on Render set env vars in UI)
 
 app = Flask(__name__)
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
-CORS(app, resources={r"/api/*": {"origins": [FRONTEND_ORIGIN, "http://localhost:3000"]}})
+CORS(app)
+
+# --- Config from env ---
+DATABASE_URL = os.getenv("DATABASE_URL")  # preferred full url (neon)
+DB_HOST = os.getenv("DB_HOST")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME = os.getenv("DB_NAME")
+DB_PORT = os.getenv("DB_PORT", "5432")  # default for postgres
+
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+MAIL_USERNAME = os.getenv("MAIL_USERNAME")
+MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "secret123")
 
 # Stripe
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
 
-# Mail
-app.config.update(
-    MAIL_SERVER="smtp.gmail.com",
-    MAIL_PORT=587,
-    MAIL_USE_TLS=True,
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
-    MAIL_DEFAULT_SENDER=("Planzee Events", os.getenv("MAIL_USERNAME", "")),
-)
+# Mail config
+app.config['MAIL_SERVER'] = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+app.config['MAIL_PORT'] = int(os.getenv("MAIL_PORT", 587))
+app.config['MAIL_USE_TLS'] = os.getenv("MAIL_USE_TLS", "True").lower() in ("true", "1", "yes")
+app.config['MAIL_USERNAME'] = MAIL_USERNAME
+app.config['MAIL_PASSWORD'] = MAIL_PASSWORD
+app.config['MAIL_DEFAULT_SENDER'] = (os.getenv("MAIL_SENDER_NAME", "Planzee Events"), MAIL_USERNAME)
+
 mail = Mail(app)
 
-SUCCESS_URL = os.getenv("SUCCESS_URL", "http://localhost:3000/success")
-CANCEL_URL  = os.getenv("CANCEL_URL", "http://localhost:3000/cancel")
+# Build SQLAlchemy engine from DATABASE_URL or components
+def build_db_engine():
+    if DATABASE_URL:
+        url = DATABASE_URL
+    elif DB_HOST and DB_USER and DB_NAME:
+        # try to detect if the user wants mysql or postgres (default to postgres)
+        # If DB_HOST looks like "localhost" with port 3306 and user provided, user may want MySQL.
+        # We'll default to postgres unless DB_ENGINE hints otherwise.
+        engine = os.getenv("DB_ENGINE", "postgresql")
+        if engine.startswith("mysql"):
+            url = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        else:
+            url = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    else:
+        return None
 
-# ---------------------------
-# DB: Postgres (Neon)
-# ---------------------------
-DATABASE_URL = os.getenv("DATABASE_URL")  # postgresql://...
+    # Ensure SQLAlchemy driver prefixes exist for common Neon/Heroku style URLs
+    # If DATABASE_URL begins with "postgres://" convert to "postgresql+psycopg2://"
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    # Neon might provide `?sslmode=require...` — that's fine
 
-def get_db():
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL not set")
-    return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor)
+    engine = create_engine(url, pool_pre_ping=True)
+    return engine
 
-DDL_CONTACT = """
-CREATE TABLE IF NOT EXISTS contact_submissions (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255),
-  email VARCHAR(255),
-  company VARCHAR(255),
-  phone VARCHAR(50),
-  message TEXT,
-  consent1 BOOLEAN,
-  consent2 BOOLEAN,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-"""
+engine = build_db_engine()
 
-DDL_PAYMENTS = """
-CREATE TABLE IF NOT EXISTS payment_submissions (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255),
-  email VARCHAR(255),
-  ticket_type VARCHAR(255),
-  amount INT,
-  session_id VARCHAR(255),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-"""
+# helper to ensure table exists
+def ensure_table():
+    if engine is None:
+        return
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS payment_submissions (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255),
+        email VARCHAR(255),
+        ticket_type VARCHAR(255),
+        amount INTEGER,
+        session_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    with engine.begin() as conn:
+        conn.execute(text(create_table_sql))
 
-def ensure_tables():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(DDL_CONTACT)
-    cur.execute(DDL_PAYMENTS)
-    conn.commit()
-    cur.close()
-    conn.close()
-
-# ---------------------------
-# Health
-# ---------------------------
-@app.route("/api/health")
+# Health endpoint
+@app.route("/api/health", methods=["GET", "HEAD"])
 def health():
+    db_configured = engine is not None
+    mail_configured = bool(MAIL_USERNAME and MAIL_PASSWORD)
+    stripe_configured = bool(STRIPE_SECRET_KEY)
+    # try a lightweight DB quick query if configured
+    db_ok = False
+    db_source = None
+    try:
+        if engine:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_ok = True
+            db_source = str(engine.url)
+    except Exception as e:
+        db_ok = False
+        db_source = str(e)
+
     return jsonify({
         "ok": True,
-        "stripe_configured": bool(stripe.api_key),
-        "mail_configured": bool(app.config.get("MAIL_USERNAME")),
-        "db_configured": bool(DATABASE_URL),
-        "db_source": "neon-postgres" if DATABASE_URL else None
+        "db_configured": db_ok,
+        "db_source": db_source,
+        "mail_configured": mail_configured,
+        "stripe_configured": stripe_configured
     })
 
-@app.route("/api/init-db", methods=["GET", "POST"])
-def init_db():
-    try:
-        ensure_tables()
-        return jsonify({"ok": True, "message": "Tables ensured"}), 200
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-# ---------------------------
-# Admin Login
-# ---------------------------
+# Admin login
 @app.route("/api/admin/login", methods=["POST"])
 def admin_login():
     data = request.json or {}
-    if data.get("username") == os.getenv("ADMIN_USERNAME", "admin") and data.get("password") == os.getenv("ADMIN_PASSWORD", "secret123"):
-        return jsonify({"success": True})
+    username = data.get("username")
+    password = data.get("password")
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        return jsonify({"success": True, "message": "Login successful"})
     return jsonify({"success": False, "message": "Invalid credentials"}), 401
 
-# ---------------------------
-# Stripe Checkout
-# ---------------------------
+# Checkout endpoint
 @app.route("/api/create-checkout-session", methods=["POST"])
 def create_checkout_session():
+    if stripe.api_key is None:
+        return jsonify({"error": "Stripe not configured"}), 500
+
     data = request.json or {}
-    name = data.get("name", "")
-    email = data.get("email", "")
-    ticket_type = data.get("ticket_type", "General Ticket")
-    amount_usd = int(data.get("amount", 0))
-    amount_cents = amount_usd * 100
+    amount = int(data.get("amount", 0))
+    # if amount is dollars -> convert to cents
+    if amount > 0 and amount < 1000000:
+        cents = int(amount * 100)
+    else:
+        cents = amount
+
+    ticket_type = data.get("ticketType") or data.get("ticket_type") or "Event Ticket"
+    name = data.get("name")
+    email = data.get("email")
 
     try:
         session = stripe.checkout.Session.create(
@@ -131,154 +150,128 @@ def create_checkout_session():
                 "price_data": {
                     "currency": "usd",
                     "product_data": {"name": ticket_type},
-                    "unit_amount": amount_cents,
+                    "unit_amount": cents,
                 },
                 "quantity": 1,
             }],
             mode="payment",
-            success_url=SUCCESS_URL,
-            cancel_url=CANCEL_URL,
+            success_url=os.getenv("SUCCESS_URL", "http://localhost:3000/success"),
+            cancel_url=os.getenv("CANCEL_URL", "http://localhost:3000/cancel"),
         )
-
-        ensure_tables()
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO payment_submissions (name, email, ticket_type, amount, session_id) VALUES (%s, %s, %s, %s, %s)",
-            (name, email, ticket_type, amount_cents, session.id)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        try:
-            if app.config.get("MAIL_USERNAME"):
-                msg = Message(
-                    subject="Your Planzee Event Ticket 🎟️",
-                    recipients=[email]
-                )
-                msg.body = f"""Hello {name},
-
-Thank you for booking with Planzee Events! 🎉
-
-🎟️ Ticket: {ticket_type}
-💵 Amount Paid: ${amount_usd}
-
-✅ Your booking is confirmed. Show your name/email at the event.
-— Planzee Events Team
-"""
-                mail.send(msg)
-        except Exception as mail_err:
-            print("⚠️ Email failed:", mail_err)
-
-        return jsonify({"id": session.id})
     except Exception as e:
-        print("Stripe error:", e)
         return jsonify({"error": str(e)}), 500
 
-# ---------------------------
-# Contact Form
-# ---------------------------
-@app.route('/api/contact', methods=['POST'])
-def contact():
-    data = request.json or {}
-    required = ['name', 'email', 'company', 'phone', 'consent1', 'consent2']
-    for f in required:
-        if not data.get(f):
-            return jsonify({"error": f"Missing field: {f}"}), 400
+    # ensure table exists
     try:
-        ensure_tables()
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            """INSERT INTO contact_submissions
-               (name, email, company, phone, message, consent1, consent2)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-            (data['name'], data['email'], data['company'], data['phone'], data.get('message',''), data['consent1'], data['consent2'])
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"message": "Contact submitted"}), 200
+        ensure_table()
+        if engine:
+            with engine.begin() as conn:
+                insert_sql = text("""
+                    INSERT INTO payment_submissions (name, email, ticket_type, amount, session_id)
+                    VALUES (:name, :email, :ticket_type, :amount, :session_id)
+                """)
+                conn.execute(insert_sql, {
+                    "name": name,
+                    "email": email,
+                    "ticket_type": ticket_type,
+                    "amount": cents,
+                    "session_id": session.id
+                })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # log but don't break checkout
+        print("DB insert error:", e)
 
-# ---------------------------
-# Bookings
-# ---------------------------
+    # Try to send confirmation email (best-effort)
+    if MAIL_USERNAME and MAIL_PASSWORD and email:
+        try:
+            msg = Message(
+                subject="Your Planzee Event Ticket 🎟️",
+                recipients=[email]
+            )
+            msg.body = f"""Hello {name},
+
+Thank you for booking with Planzee Events!
+
+Ticket: {ticket_type}
+Amount Paid: ${cents/100:.2f}
+
+We will send further details to this email.
+
+- Planzee Events
+"""
+            mail.send(msg)
+        except Exception as mail_err:
+            print("Mail send error:", mail_err)
+
+    return jsonify({"id": session.id})
+
+# Fetch bookings
 @app.route("/api/bookings", methods=["GET"])
 def get_bookings():
     try:
-        ensure_tables()
-        conn = get_db()
-        df = pd.read_sql(
-            "SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC",
-            conn
-        )
-        conn.close()
-        if "amount" in df.columns:
-            df["amount"] = (df["amount"].astype(int) / 100.0)
-        return jsonify(df.to_dict(orient="records"))
+        ensure_table()
+        if engine is None:
+            return jsonify({"error": "Database is not configured."}), 500
+        df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=engine)
+        rows = df.to_dict(orient="records")
+        return jsonify(rows)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Export CSV
 @app.route("/api/bookings/export/csv", methods=["GET"])
 def export_bookings_csv():
     try:
-        ensure_tables()
-        conn = get_db()
-        df = pd.read_sql(
-            "SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC",
-            conn
-        )
-        conn.close()
+        ensure_table()
+        if engine is None:
+            return jsonify({"error": "Database is not configured."}), 500
+        df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=engine)
         if df.empty:
             return jsonify({"error": "No bookings available to export"}), 404
-        df["amount"] = (df["amount"].astype(int) / 100.0)
-        buf = StringIO()
+        buf = io.StringIO()
         df.to_csv(buf, index=False)
-        mem = BytesIO(buf.getvalue().encode("utf-8"))
-        mem.seek(0)
-        return send_file(mem, as_attachment=True, download_name="bookings.csv", mimetype="text/csv")
+        buf.seek(0)
+        return send_file(io.BytesIO(buf.getvalue().encode('utf-8')), mimetype="text/csv", as_attachment=True, download_name="bookings.csv")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Export Excel
 @app.route("/api/bookings/export/excel", methods=["GET"])
 def export_bookings_excel():
     try:
-        ensure_tables()
-        conn = get_db()
-        df = pd.read_sql(
-            "SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC",
-            conn
-        )
-        conn.close()
+        ensure_table()
+        if engine is None:
+            return jsonify({"error": "Database is not configured."}), 500
+        df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=engine)
         if df.empty:
             return jsonify({"error": "No bookings available to export"}), 404
-        df["amount"] = (df["amount"].astype(int) / 100.0)
-        mem = BytesIO()
-        with pd.ExcelWriter(mem, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="Bookings")
-        mem.seek(0)
-        return send_file(
-            mem,
-            as_attachment=True,
-            download_name="bookings.xlsx",
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="bookings")
+        buf.seek(0)
+        return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name="bookings.xlsx")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------------------------
-# Run
-# ---------------------------
-if __name__ == "__main__":
-    if os.getenv("AUTO_INIT_DB", "1").lower() in ("1", "true", "yes"):
-        try:
-            ensure_tables()
-            print("✅ Tables ensured on startup.")
-        except Exception as e:
-            print("⚠️ Auto-init failed:", e)
+# Optional contact endpoint (if you want)
+@app.route("/api/contact", methods=["POST"])
+def contact():
+    data = request.json or {}
+    name = data.get("name")
+    email = data.get("email")
+    message = data.get("message", "")
+    try:
+        if MAIL_USERNAME and MAIL_PASSWORD:
+            msg = Message(subject="Website contact form", recipients=[MAIL_USERNAME])
+            msg.body = f"From: {name} <{email}>\n\n{message}"
+            mail.send(msg)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=True)
+if __name__ == "__main__":
+    # local dev
+    ensure_table()
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 5000))
+    app.run(host=host, port=port, debug=True)

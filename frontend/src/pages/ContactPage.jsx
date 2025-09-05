@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import "./ContactPage.css";
-import API_BASE from "../config";
+
+// backend base URL (set REACT_APP_API_URL in Vercel; fallback to your Render URL)
+const API_BASE = process.env.REACT_APP_API_URL || "https://event-platform-13.onrender.com";
 
 export default function ContactPage() {
   const [formData, setFormData] = useState({
@@ -12,6 +14,7 @@ export default function ContactPage() {
     consent1: false,
     consent2: false,
   });
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -24,19 +27,25 @@ export default function ContactPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // minimal validation
+    if (!formData.name.trim() || !formData.email.trim() || !formData.company.trim() || !formData.phone.trim()) {
+      alert("Please fill required fields.");
+      return;
+    }
     if (!formData.consent1 || !formData.consent2) {
       alert("Please agree to both terms before submitting.");
       return;
     }
 
+    setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/contact`, {
+      const res = await fetch(`${API_BASE}/api/contact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
 
-      if (response.ok) {
+      if (res.ok) {
         alert("Your message has been submitted successfully.");
         setFormData({
           name: "",
@@ -48,18 +57,20 @@ export default function ContactPage() {
           consent2: false,
         });
       } else {
-        const text = await response.text();
-        alert("There was a problem submitting your message: " + text);
+        const err = await res.json().catch(() => null);
+        console.error("Contact form server error:", err);
+        alert("There was a problem submitting your message. Check server logs.");
       }
     } catch (error) {
       console.error("Submission error:", error);
-      alert("Error connecting to server: " + error.message);
+      alert("Error connecting to server. Check your backend URL and CORS.");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="contact-container">
-      {/* Left Column */}
       <div className="contact-left">
         <h2>Planzee Group</h2>
         <p>Vidhya Nagar 4th cross, Near Hanuman Temple, Ballari 583101.</p>
@@ -76,7 +87,6 @@ export default function ContactPage() {
         </div>
       </div>
 
-      {/* Right Column (Form) */}
       <form className="contact-form" onSubmit={handleSubmit}>
         <label>Name*</label>
         <input type="text" name="name" value={formData.name} onChange={handleChange} required />
@@ -94,9 +104,7 @@ export default function ContactPage() {
         <textarea name="message" rows="4" value={formData.message} onChange={handleChange} />
 
         <p className="agreement-text">
-          From time to time, Planzee Events would like to contact you about our products and
-          services, as well as other content that may be of interest to you. Please check the
-          boxes below if you are happy to stay in touch:
+          From time to time, Planzee Events would like to contact you about our products and services. Please check the boxes below if you are happy to stay in touch:
         </p>
         <label className="checkbox-label">
           <input type="checkbox" name="consent1" checked={formData.consent1} onChange={handleChange} />
@@ -104,17 +112,15 @@ export default function ContactPage() {
         </label>
 
         <p className="agreement-text">
-          Planzee Events needs to store your data in order to contact you in regards your enquiry
-          above. If you consent to us storing your personal data for this purpose, please tick the
-          checkbox below.
+          Planzee Events needs to store your data in order to contact you in regards your enquiry above.
         </p>
         <label className="checkbox-label">
           <input type="checkbox" name="consent2" checked={formData.consent2} onChange={handleChange} />
           I agree to allow Planzee Events to store and process my personal data.*
         </label>
 
-        <button type="submit" className="submit-btn">
-          Submit
+        <button type="submit" className="submit-btn" disabled={loading}>
+          {loading ? "Sending…" : "Submit"}
         </button>
       </form>
     </div>

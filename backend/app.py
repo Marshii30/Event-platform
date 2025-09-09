@@ -8,16 +8,14 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import stripe
 from flask_mail import Mail, Message
-from urllib.parse import urlparse
 
-# load .env locally; on Render set env vars via UI
-load_dotenv()
+load_dotenv()  # read .env (local dev only; on Render set env vars in UI)
 
 app = Flask(__name__)
 CORS(app)
 
 # --- Config from env ---
-DATABASE_URL = os.getenv("DATABASE_URL")  # preferred full url (Neon)
+DATABASE_URL = os.getenv("DATABASE_URL")  # preferred full url (neon)
 DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
@@ -49,15 +47,15 @@ def build_db_engine():
     if DATABASE_URL:
         url = DATABASE_URL
     elif DB_HOST and DB_USER and DB_NAME:
-        engine_hint = os.getenv("DB_ENGINE", "postgresql")
-        if engine_hint.startswith("mysql"):
+        engine_name = os.getenv("DB_ENGINE", "postgresql")
+        if engine_name.startswith("mysql"):
             url = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         else:
             url = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     else:
         return None
 
-    # normalise older "postgres://" into SQLAlchemy style
+    # convert older postgres:// to modern prefix if necessary
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg2://", 1)
 
@@ -66,112 +64,10 @@ def build_db_engine():
 
 engine = build_db_engine()
 
-# Provide a DB-API connection (cursor-compatible) for callers that expect .cursor()
-# This returns a connection object which should be closed by the caller.
-def get_dbapi_connection():
-    """
-    Returns a DB-API connection with .cursor() for compatibility.
-    If SQLAlchemy `engine` exists we use engine.raw_connection() (which returns a DB-API connection).
-    Otherwise we try to construct a direct connection from DATABASE_URL or DB_* env vars.
-    """
-    # prefer engine.raw_connection() if we have an SQLAlchemy engine
-    if engine is not None:
-        try:
-            conn = engine.raw_connection()
-            return conn
-        except Exception as e:
-            # fallback to direct driver
-            print("Warning: engine.raw_connection() failed:", e)
-
-    # Try parse DATABASE_URL
-    db_url = DATABASE_URL or ""
-    if db_url:
-        try:
-            parsed = urlparse(db_url)
-            scheme = parsed.scheme.lower()
-            # postgres schemes can be "postgresql+psycopg2" or "postgres"
-            if "postgres" in scheme:
-                # use psycopg2 if available
-                try:
-                    import psycopg2
-                    conn = psycopg2.connect(db_url)
-                    return conn
-                except Exception as e:
-                    print("psycopg2 connect failed:", e)
-            if scheme.startswith("mysql"):
-                # mysql URL
-                try:
-                    import mysql.connector
-                    # urlparse for mysql returns username/password/hostname/port/path
-                    user = parsed.username
-                    password = parsed.password
-                    host = parsed.hostname
-                    port = parsed.port or 3306
-                    dbname = parsed.path.lstrip("/")
-                    conn = mysql.connector.connect(user=user, password=password, host=host, port=port, database=dbname)
-                    return conn
-                except Exception as e:
-                    print("mysql connector connect failed:", e)
-        except Exception as e:
-            print("Error parsing DATABASE_URL:", e)
-
-    # Last resort: use DB_HOST/DB_USER variables
-    if DB_HOST and DB_USER and DB_NAME:
-        # assume postgres by default
-        try:
-            import psycopg2
-            conn = psycopg2.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD or "", dbname=DB_NAME, port=int(DB_PORT))
-            return conn
-        except Exception as e:
-            print("psycopg2 direct connect failed:", e)
-        try:
-            import mysql.connector
-            conn = mysql.connector.connect(user=DB_USER, password=DB_PASSWORD or "", host=DB_HOST, port=int(DB_PORT), database=DB_NAME)
-            return conn
-        except Exception as e:
-            print("mysql.connector direct connect failed:", e)
-
-    # If we can't get a DB connection return None
-    return None
-
-# helper to ensure table exists (uses SQLAlchemy engine when possible)
+# helper to ensure table exists
 def ensure_table():
     if engine is None:
-        # try creation via raw dbapi connection (best-effort)
-        conn = get_dbapi_connection()
-        if conn:
-            try:
-                cur = conn.cursor()
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS payment_submissions (
-                        id SERIAL PRIMARY KEY,
-                        name VARCHAR(255),
-                        email VARCHAR(255),
-                        ticket_type VARCHAR(255),
-                        amount INTEGER,
-                        session_id VARCHAR(255),
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                # commit if DB-API supports it
-                try:
-                    conn.commit()
-                except Exception:
-                    pass
-            except Exception as e:
-                print("ensure_table (dbapi) error:", e)
-            finally:
-                try:
-                    cur.close()
-                except Exception:
-                    pass
-                try:
-                    conn.close()
-                except Exception:
-                    pass
         return
-
-    # If engine exists, use SQLAlchemy text execution (preferred)
     create_table_sql = """
     CREATE TABLE IF NOT EXISTS payment_submissions (
         id SERIAL PRIMARY KEY,
@@ -183,15 +79,25 @@ def ensure_table():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """
-    try:
-        with engine.begin() as conn:
-            conn.execute(text(create_table_sql))
-    except Exception as e:
-        print("ensure_table (engine) error:", e)
+    with engine.begin() as conn:
+        conn.execute(text(create_table_sql))
+
+# small helper: run a SELECT and return list-of-dicts
+def fetch_rows(query, params=None):
+    if engine is None:
+        return []
+    params = params or {}
+    with engine.connect() as conn:
+        result = conn.execute(text(query), params)
+        rows = [dict(r._mapping) for r in result]
+    return rows
 
 # Health endpoint
 @app.route("/api/health", methods=["GET", "HEAD"])
 def health():
+    db_configured = engine is not None
+    mail_configured = bool(MAIL_USERNAME and MAIL_PASSWORD)
+    stripe_configured = bool(STRIPE_SECRET_KEY)
     db_ok = False
     db_source = None
     try:
@@ -200,30 +106,9 @@ def health():
                 conn.execute(text("SELECT 1"))
             db_ok = True
             db_source = str(engine.url)
-        else:
-            # try DB-API connection
-            conn = get_dbapi_connection()
-            if conn:
-                try:
-                    cur = conn.cursor()
-                    cur.execute("SELECT 1")
-                    db_ok = True
-                    db_source = "dbapi"
-                finally:
-                    try:
-                        cur.close()
-                    except Exception:
-                        pass
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
     except Exception as e:
         db_ok = False
         db_source = str(e)
-
-    mail_configured = bool(MAIL_USERNAME and MAIL_PASSWORD)
-    stripe_configured = bool(STRIPE_SECRET_KEY)
 
     return jsonify({
         "ok": True,
@@ -251,7 +136,6 @@ def create_checkout_session():
 
     data = request.json or {}
     amount = int(data.get("amount", 0))
-    # if amount is dollars -> convert to cents
     if amount > 0 and amount < 1000000:
         cents = int(amount * 100)
     else:
@@ -279,7 +163,7 @@ def create_checkout_session():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    # ensure table exists and try to insert a record (best-effort)
+    # ensure table exists and insert record (best-effort)
     try:
         ensure_table()
         if engine:
@@ -295,36 +179,11 @@ def create_checkout_session():
                     "amount": cents,
                     "session_id": session.id
                 })
-        else:
-            # fallback using DB-API connection
-            conn = get_dbapi_connection()
-            if conn:
-                cur = conn.cursor()
-                try:
-                    cur.execute("""
-                        INSERT INTO payment_submissions (name, email, ticket_type, amount, session_id)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (name, email, ticket_type, cents, session.id))
-                    try:
-                        conn.commit()
-                    except Exception:
-                        pass
-                except Exception as e:
-                    print("DB insert (dbapi) error:", e)
-                finally:
-                    try:
-                        cur.close()
-                    except Exception:
-                        pass
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
     except Exception as e:
-        # log but don't break checkout
+        # log error but continue
         print("DB insert error:", e)
 
-    # Try to send confirmation email (best-effort)
+    # send confirmation email (best-effort)
     if MAIL_USERNAME and MAIL_PASSWORD and email:
         try:
             msg = Message(
@@ -354,24 +213,9 @@ def get_bookings():
     try:
         ensure_table()
         if engine is None:
-            # use DB-API connection read into pandas
-            conn = get_dbapi_connection()
-            if conn is None:
-                return jsonify({"error": "Database is not configured."}), 500
-            try:
-                df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=conn)
-                rows = df.to_dict(orient="records")
-                return jsonify(rows)
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+            return jsonify({"error": "Database is not configured."}), 500
 
-        # engine exists -> use SQLAlchemy connection (preferred)
-        with engine.connect() as conn:
-            df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=conn)
-        rows = df.to_dict(orient="records")
+        rows = fetch_rows("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC")
         return jsonify(rows)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -382,23 +226,13 @@ def export_bookings_csv():
     try:
         ensure_table()
         if engine is None:
-            conn = get_dbapi_connection()
-            if conn is None:
-                return jsonify({"error": "Database is not configured."}), 500
-            try:
-                df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=conn)
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-        else:
-            with engine.connect() as conn:
-                df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=conn)
+            return jsonify({"error": "Database is not configured."}), 500
 
-        if df.empty:
+        rows = fetch_rows("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC")
+        if not rows:
             return jsonify({"error": "No bookings available to export"}), 404
 
+        df = pd.DataFrame(rows)
         buf = io.StringIO()
         df.to_csv(buf, index=False)
         buf.seek(0)
@@ -412,23 +246,13 @@ def export_bookings_excel():
     try:
         ensure_table()
         if engine is None:
-            conn = get_dbapi_connection()
-            if conn is None:
-                return jsonify({"error": "Database is not configured."}), 500
-            try:
-                df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=conn)
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-        else:
-            with engine.connect() as conn:
-                df = pd.read_sql("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC", con=conn)
+            return jsonify({"error": "Database is not configured."}), 500
 
-        if df.empty:
+        rows = fetch_rows("SELECT id, name, email, ticket_type, amount, created_at FROM payment_submissions ORDER BY created_at DESC")
+        if not rows:
             return jsonify({"error": "No bookings available to export"}), 404
 
+        df = pd.DataFrame(rows)
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="bookings")
@@ -437,7 +261,7 @@ def export_bookings_excel():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Optional contact endpoint (if you want)
+# Optional contact endpoint
 @app.route("/api/contact", methods=["POST"])
 def contact():
     data = request.json or {}
